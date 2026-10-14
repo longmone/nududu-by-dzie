@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
 
 export type LoginState = { message?: string } | undefined;
 
@@ -11,6 +11,12 @@ export async function signIn(_prevState: LoginState, formData: FormData): Promis
 
   if (!email || !password) {
     return { message: "Please enter both email and password." };
+  }
+
+  if (!hasSupabaseConfig()) {
+    return {
+      message: "Authentication is unavailable because Supabase is not configured in this environment.",
+    };
   }
 
   const supabase = await createClient();
@@ -24,6 +30,10 @@ export async function signIn(_prevState: LoginState, formData: FormData): Promis
 }
 
 export async function signOut() {
+  if (!hasSupabaseConfig()) {
+    redirect("/admin/login");
+  }
+
   const supabase = await createClient();
   await supabase.auth.signOut();
   redirect("/admin/login");

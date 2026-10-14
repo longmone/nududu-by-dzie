@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
 import { sendOrderNotification } from "@/lib/email/send-order-notification";
 import { sendCustomerOrderReceivedEmail, sendCustomerStatusUpdateEmail } from "@/lib/email/send-customer-notification";
 import type { CreateOrderInput, Order } from "@/types/order";
@@ -40,6 +40,10 @@ function mapOrderRow(row: OrderRpcRow): Order {
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<Order> {
+  if (!hasSupabaseConfig()) {
+    throw new Error("Ordering is unavailable because Supabase is not configured.");
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .rpc("create_order", {
@@ -91,14 +95,20 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
 }
 
 export async function getOrder(id: string): Promise<Order | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .rpc("get_order", { p_id: id })
-    .returns<OrderRpcRow[]>()
-    .maybeSingle();
+  if (!hasSupabaseConfig()) return null;
 
-  if (error) throw error;
-  return data ? mapOrderRow(data) : null;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .rpc("get_order", { p_id: id })
+      .returns<OrderRpcRow[]>()
+      .maybeSingle();
+
+    if (error) throw error;
+    return data ? mapOrderRow(data) : null;
+  } catch {
+    return null;
+  }
 }
 
 type OrderTableRow = OrderRpcRow & { customer_phone: string; notes: string | null };
@@ -111,33 +121,47 @@ const ADMIN_ORDER_SELECT =
   "id, order_number, meal_name, size_label, quantity, unit_price, total, customer_name, customer_email, customer_phone, fulfillment_method, location, expected_date, notes, status, created_at";
 
 export async function getOrdersAdmin(status?: Order["status"]) {
-  const supabase = await createClient();
-  let query = supabase
-    .from("orders")
-    .select(ADMIN_ORDER_SELECT)
-    .order("created_at", { ascending: false });
+  if (!hasSupabaseConfig()) return [];
 
-  if (status) query = query.eq("status", status);
+  try {
+    const supabase = await createClient();
+    let query = supabase
+      .from("orders")
+      .select(ADMIN_ORDER_SELECT)
+      .order("created_at", { ascending: false });
 
-  const { data, error } = await query.returns<OrderTableRow[]>();
-  if (error) throw error;
-  return (data ?? []).map(mapOrderTableRow);
+    if (status) query = query.eq("status", status);
+
+    const { data, error } = await query.returns<OrderTableRow[]>();
+    if (error) throw error;
+    return (data ?? []).map(mapOrderTableRow);
+  } catch {
+    return [];
+  }
 }
 
 export async function getOrderByIdAdmin(id: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("orders")
-    .select(ADMIN_ORDER_SELECT)
-    .eq("id", id)
-    .maybeSingle()
-    .returns<OrderTableRow>();
+  if (!hasSupabaseConfig()) return null;
 
-  if (error) throw error;
-  return data ? mapOrderTableRow(data) : null;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("orders")
+      .select(ADMIN_ORDER_SELECT)
+      .eq("id", id)
+      .maybeSingle()
+      .returns<OrderTableRow>();
+
+    if (error) throw error;
+    return data ? mapOrderTableRow(data) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateOrderStatus(id: string, status: Order["status"]) {
+  if (!hasSupabaseConfig()) return;
+
   const supabase = await createClient();
   const { error } = await supabase.from("orders").update({ status }).eq("id", id);
   if (error) throw error;
